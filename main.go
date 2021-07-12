@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 	"errors"
-	
+	"sort"
+
 	"github.com/alicanyildirim/quiet_hn/hn"
 )
 
@@ -55,33 +56,42 @@ func getTopStories(numStories int) ([]item, error){
 	if err != nil {
 		return nil, errors.New("Failed to load top stories")
 	}
-	var stories []item
-	for _, id := range ids {
-		type result struct {
-			item item
-			err error
-		}
-		resultCh := make(chan result)
-		go func(id int) {
+	
+	type result struct {
+		index int
+		item item
+		err error
+	}
+	resultCh := make(chan result)
+	for index := 0; index < numStories; index++ {
+		go func(index, id int) {
 			hnItem, err := client.GetItem(id)
 			if err != nil {
-				resultCh <- result{err: err}
+				resultCh <- result{index: index, err: err}
 			}
-			resultCh <- result{item: parseHNItem(hnItem)}
+			resultCh <- result{index: index, item: parseHNItem(hnItem)}
 
-		}(id)
+		}(index, ids[index])
 		
-		res := <- resultCh
+	}
+	var results []result
+	for i := 0; i < numStories; i++ {
+		results = append(results, <-resultCh)
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].index < results[j].index
+	})
+
+	var stories []item
+
+	for _, res := range results {
 		if res.err != nil {
 			continue
 		}
 		if isStoryLink(res.item) {
 			stories = append(stories, res.item)
-			if len(stories) >= numStories {
-				break
-			}
 		}
-	}
+	} 
 	return stories, nil
 }
 
